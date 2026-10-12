@@ -11,6 +11,7 @@ OUTLINE_JS  = (STATIC / "outline.js").read_text(encoding="utf-8")
 STYLE_CSS   = (STATIC / "style.css").read_text(encoding="utf-8")
 BOOT_JS     = (STATIC / "boot.js").read_text(encoding="utf-8")
 PANELS_JS   = (STATIC / "panels.js").read_text(encoding="utf-8")
+MESSAGES_JS = (STATIC / "messages.js").read_text(encoding="utf-8")
 CONFIG_PY   = (ROOT / "api" / "config.py").read_text(encoding="utf-8")
 
 # Number of locale blocks in i18n.js: en, it, ja, ru, es, de, zh, zh-Hant, pt, ko, fr, tr
@@ -88,6 +89,13 @@ def test_outline_navigation_and_long_session_contract():
         "if (S.busy || S.activeStreamId) return;",
     ):
         assert marker in OUTLINE_JS
+
+    # Outline jumps address rows by absolute transcript index. The full-transcript
+    # escape hatch (msg_limit=all) now lives in the shared loader, whose contract is
+    # pinned by test_session_default_window.py, so the outline must call that loader
+    # instead of hand-building a request of its own.
+    assert "&msg_limit=all" not in OUTLINE_JS
+    assert "_ensureAllMessagesLoaded" in OUTLINE_JS
 
 
 def test_outline_opt_in_layout_and_render_state_contract():
@@ -195,3 +203,20 @@ def test_outline_serves_narrow_viewports_as_a_bottom_sheet():
     # The backdrop exists only for the compact form and is torn down otherwise.
     assert "backdrop.remove()" in OUTLINE_JS
     assert "document.body.appendChild(backdrop)" in OUTLINE_JS
+
+    # The compact form is modal, so dialog semantics + the focus lifecycle are
+    # applied and removed at runtime while the markup keeps its desktop
+    # role="navigation". Post-open interactions (Escape, Tab containment, focus
+    # restore, breakpoint crossing, prompt preemption) are covered observably in
+    # tests/test_issue2124_outline_bottom_sheet.py.
+    assert "wrapper.setAttribute('role', 'dialog')" in OUTLINE_JS
+    assert "wrapper.setAttribute('aria-modal', 'true')" in OUTLINE_JS
+    assert "wrapper.setAttribute('role', 'navigation')" in OUTLINE_JS
+    assert 'role="navigation"' in INDEX_HTML
+
+    # The sheet yields to a prompt by wrapping its two entry points, so those
+    # globals must still be the top-level function declarations in messages.js.
+    assert "['showApprovalCard', 'approvalCard']" in OUTLINE_JS
+    assert "['showClarifyCard', 'clarifyCard']" in OUTLINE_JS
+    assert "function showApprovalCard(" in MESSAGES_JS
+    assert "function showClarifyCard(" in MESSAGES_JS
